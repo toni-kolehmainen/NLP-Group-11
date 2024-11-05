@@ -8,6 +8,8 @@ from string import punctuation
 from nltk import RegexpTokenizer
 from nltk.stem.porter import PorterStemmer
 from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from gensim.corpora import Dictionary
 from nltk.tokenize import word_tokenize
 from collections import Counter
@@ -101,9 +103,49 @@ def analyse_matrix(chapterdata):
                 overlap_ratio = 0
 
             overlap_matrix[i, j] = overlap_ratio
+
+            # Optional: print the overlap ratio for each comparison
+            # print(f"Overlap between canto {i} and {j}: {overlap_ratio}")
     return overlap_matrix
 
+def analyse_matrix_with_cosine(chapterdata):
+    # Prepare data for vectorization
+    chapter_texts = [pre_process(chapter[1].lower()) for chapter in chapterdata]
+    chapter_texts = [" ".join(text) for text in chapter_texts]  # Join tokens back into strings
+
+    # Vectorize to get term frequencies
+    vectorizer = CountVectorizer()
+    term_matrix = vectorizer.fit_transform(chapter_texts)
+
+    # Calculate cosine similarity matrix
+    cosine_sim_matrix = cosine_similarity(term_matrix)
+
+    return cosine_sim_matrix
+
+def analyze_within_book_overlap(overlap_matrix, start_index, end_index):
+    """
+    Calculates the average vocabulary overlap for a single book by analyzing the overlap matrix.
+
+    Parameters:
+        overlap_matrix (np.array): 100x100 matrix of vocabulary overlaps for all cantos.
+        start_index (int): The starting index of the book within the matrix.
+        num_chapters (int): The number of chapters (cantos) in the book.
+
+    Returns:
+        float: The average vocabulary overlap within the book.
+    """
+    # Extract the sub-matrix corresponding to the book
+    book_matrix = overlap_matrix[start_index:end_index, start_index:end_index]
     
+    # Calculate the average of off-diagonal elements in the sub-matrix
+    # Mask the diagonal to exclude self-overlap (which is always 1)
+    masked_matrix = np.tril(book_matrix, -1) + np.triu(book_matrix, 1)
+    
+    # Calculate the mean of non-zero elements
+    num_elements = (end_index - start_index) * ((end_index-start_index) - 1)  # Number of off-diagonal elements in a symmetric matrix
+    avg_overlap = np.sum(masked_matrix) / num_elements if num_elements != 0 else 0
+
+    return avg_overlap    
     
 
 def plot_ratios(ratios):
@@ -118,7 +160,7 @@ def plot_ratios(ratios):
     plt.grid(axis='y')  # Add horizontal grid lines for clarity
     plt.show()
 
-def display_matrix(matrix):
+def display_matrix(matrix, name):
     n = 100
     colors = ["red", "orange", "yellow", "white", "green", "blue", "magenta", "purple","brown", "black"]
     custom_cmap = LinearSegmentedColormap.from_list("custom_cmap", colors, N=256)
@@ -127,7 +169,7 @@ def display_matrix(matrix):
                 annot=False, fmt=".2f", linewidths=.5, vmin=0.05, vmax=1)
 
     # Set titles and labels
-    plt.title('Vocabulary Overlap Matrix (100x100)', fontsize=20)
+    plt.title((f'{name} (100x100)'), fontsize=20)
     plt.xlabel('Chapter Number', fontsize=15)
     plt.ylabel('Chapter Number', fontsize=15)
 
@@ -153,36 +195,6 @@ def text2tokens(raw_text):
     return [token for token in stemmed_tokens if len(token) > 2]  # skip short tokens
 
 # For task 3
-def gen_LDA_models(chapterdata):
-    dataset = [text2tokens(chapter[1]) for chapter in chapterdata]
-    dictionary = Dictionary(documents=dataset, prune_at=None)
-    dictionary.filter_extremes(no_below=5, no_above=0.3, keep_n=None)
-    dictionary.compactify()
-    d2b_dataset = [dictionary.doc2bow(doc) for doc in dataset]  # convert list of tokens to bag of word representation
-
-    num_topics = 10
-    lda_fst = LdaMulticore(
-            corpus=d2b_dataset, num_topics=num_topics, id2word=dictionary,
-            workers=4, eval_every=None, passes=10, batch=True,
-    )
-    lda_snd = LdaMulticore(
-        corpus=d2b_dataset, num_topics=num_topics, id2word=dictionary,
-        workers=4, eval_every=None, passes=20, batch=True,
-    )
-    return lda_fst, lda_snd
-# For task 3
-def plot_difference_matplotlib(mdiff, title="", annotation=None):
-    """Helper function to plot difference between models.
-
-    Uses matplotlib as the backend."""
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(18, 14))
-    data = ax.imshow(mdiff, cmap='RdBu_r', origin='lower')
-    plt.title(title)
-    plt.colorbar(data)
-    plt.show()
-
-# Testing
 # Apply LDA to each chapter's text and extract topics
 
 def preprocess_text(text):
@@ -197,10 +209,11 @@ def apply_lda_to_chapters(chapters, num_topics=3, words_per_topic=8):
     
     # Prepare dictionary and corpus
     id2word = corpora.Dictionary(processed_texts)  # Create a dictionary from tokenized words
+    vocab = list(id2word.values())
     corpus = [id2word.doc2bow(text) for text in processed_texts]  # Create a BoW corpus for each chapter
     
+    
     topic_words = []
-
     # Train LDA model for each chapter
     for chapter_corpus in corpus:
         lda_model = LdaModel([chapter_corpus], num_topics=num_topics, id2word=id2word, passes=15)
@@ -208,30 +221,56 @@ def apply_lda_to_chapters(chapters, num_topics=3, words_per_topic=8):
         topics = lda_model.show_topics(num_topics=num_topics, num_words=words_per_topic, formatted=False)
         topic_words.append([[word for word, _ in topic] for _, topic in topics])
     
-    return topic_words
+    return topic_words, vocab
+
+# topic vectors for cosine similarity
+def create_topic_vectors(topic_words, vocab):
+    vectors = []
+    vocab_dict = {word: idx for idx, word in enumerate(vocab)}
+    
+    for topics in topic_words:
+        vector = np.zeros(len(vocab_dict))  # Create a vector for the entire vocabulary
+        for topic in topics:
+            for word in topic:
+                if word in vocab_dict:
+                    vector[vocab_dict[word]] += 1  # Increase frequency count
+        vectors.append(vector)
+    
+    return np.array(vectors)
+
 
 # Calculate similarity between two sets of topics using Jaccard similarity
-def calculate_topic_similarity(topic_words):
+def calculate_jaccard_topic_similarity(topic_words):
     num_chapters = len(topic_words)
     similarity_matrix = np.zeros((num_chapters, num_chapters))
     
-    # Calculate similarity for each pair of chapters
     for i, j in combinations(range(num_chapters), 2):
         similarities = []
-        for topic_i in topic_words[i]:
-            for topic_j in topic_words[j]:
+        for topic_i in topic_words[i]:  # Iterate over topics in chapter i
+            for topic_j in topic_words[j]:  # Iterate over topics in chapter j
                 # Calculate Jaccard similarity between two sets of words
                 intersection = set(topic_i) & set(topic_j)
                 union = set(topic_i) | set(topic_j)
                 jaccard_sim = len(intersection) / len(union) if union else 0
                 similarities.append(jaccard_sim)
-        
+
         # Average similarity for chapter pair (i, j)
         avg_similarity = np.mean(similarities) if similarities else 0
         similarity_matrix[i, j] = similarity_matrix[j, i] = avg_similarity
+
+    # Fill diagonal with 1 (similarity of a chapter with itself)
     np.fill_diagonal(similarity_matrix, 1)
     
     return similarity_matrix
+
+def combine_similarity_matrices(similarity_matrix_cosine, similarity_matrix_jaccard, alpha=0.5):
+    # Ensure the matrices are of the same shape
+    assert similarity_matrix_cosine.shape == similarity_matrix_jaccard.shape, "Matrices must have the same dimensions"
+    
+    # Combine using a weighted average
+    combined_similarity = alpha * similarity_matrix_cosine + (1 - alpha) * similarity_matrix_jaccard
+    return combined_similarity
+
 # For Task 8
 def three_most_frequent_terms(chapterdata):
     combined_text = ''.join(chapter[1] for chapter in chapterdata)
@@ -360,6 +399,21 @@ def plot_stacked_pos_distribution(context_data):
     plt.tight_layout()
     plt.show()
 
+#For task 9
+
+
+def calculate_pearson_correlation(jaccard_matrix, cosine_matrix):
+    """Calculate Pearson correlation coefficient between two similarity matrices."""
+    # Generate vector pairs for both matrices
+
+    jaccard_values = jaccard_matrix.flatten()  # Extracting values for comparison
+    cosine_values = cosine_matrix.flatten()
+
+    # Calculate the Pearson correlation
+    pearson_coefficient, p_value = pearsonr(jaccard_values, cosine_values)
+    
+    return pearson_coefficient, p_value
+
 if __name__=='__main__':
     # Task 1
     contents= []
@@ -378,20 +432,60 @@ if __name__=='__main__':
 
     # Task 2
     # Run these for the matrix file (takes about 1 min to run)
-    # matrix = analyse_matrix(chapterdata)
-    # np.savetxt("chapter_matrix.csv", matrix)
+    #matrix = analyse_matrix(chapterdata)
+    #np.savetxt("vocabulary_matrix.csv", matrix)
 
-    loaded_matrix = np.loadtxt('chapter_matrix.csv')
-    display_matrix(loaded_matrix)
+    #matrix = analyse_matrix_with_cosine(chapterdata)
+    n#p.savetxt("vocabulary_cosine_matrix.csv", matrix)
+
+    loaded_matrix = np.loadtxt('vocabulary_matrix.csv')
+    inferno_overlap = analyze_within_book_overlap(loaded_matrix,0,33)
+    purgatory_overlap = analyze_within_book_overlap(loaded_matrix,34,67)
+    paradise_overlap = analyze_within_book_overlap(loaded_matrix,67,100)
+    print("Inferno book average vocabulary overlap : {}\n".format(inferno_overlap),
+          "Purgatory book average vocabulary overlap : {}\n".format(purgatory_overlap),
+          "Paradise book average vocabulary overlap : {}\n".format(paradise_overlap)
+        )
+    display_matrix(loaded_matrix, "Vocabulary overlap matrix")
+
+    voc_cosine_matrix = np.loadtxt("vocabulary_cosine_matrix.csv")
+    display_matrix(voc_cosine_matrix, "Cosine Vocabulary overlap matrix")
+
+    pearson_coeff, p_value = calculate_pearson_correlation(loaded_matrix,voc_cosine_matrix)
+    print(f"Pearson correlation between Vocabulary overlap measures {pearson_coeff} with p-value of {p_value}")
 
     # Task 3
     # Run these for topic similarity matrix (takes about 5 seconds)
-    # topics = apply_lda_to_chapters(chapterdata)
-    # matrix = calculate_topic_similarity(topics)
-    # np.savetxt("topic_similarity_matrix3.csv", matrix)
+    #topics, vocab = apply_lda_to_chapters(chapterdata)
     
-    topic_matrix = np.loadtxt('topic_similarity_matrix.csv')
-    display_matrix(topic_matrix)
+    # Calculate cosine similarity
+    #topic_vectors = create_topic_vectors(topics, vocab)
+    #similarity_matrix = cosine_similarity(topic_vectors)
+    #np.savetxt("topic_cosine_similarity_matrix.csv", similarity_matrix)
+    #Calculate jaccard similarity
+    #matrix = calculate_jaccard_topic_similarity(topics)
+    #np.savetxt("topic_jaccard_similarity_matrix.csv", matrix)
+
+    topic_j_matrix = np.loadtxt("topic_cosine_similarity_matrix.csv")
+    display_matrix(topic_j_matrix, "Topic Cosine similarity matrix")
+    
+    
+    topic_c_matrix = np.loadtxt('topic_jaccard_similarity_matrix.csv')
+    display_matrix(topic_c_matrix, "Topic Jaccard similarity matrix")
+
+    # Combination matrix
+    #combination_matrix = combine_similarity_matrices(topic_c_matrix, topic_j_matrix, 0.5)
+    #np.savetxt("topic_similarity_combination_matrix.csv", combination_matrix)
+
+    comb_matrix = np.loadtxt("topic_similarity_combination_matrix.csv")
+    display_matrix(comb_matrix, "Topic similarity Combination matrix")
+
+    pearson_coeff, p_value = calculate_pearson_correlation(topic_j_matrix,topic_c_matrix)
+    print(f"Pearson correlation between Jaccard and Cosine topic similarity {pearson_coeff} with p-value of {p_value}")
+    #np.savetxt("topic_similarity_pearson_matrix.csv", pearson_matrix)
+
+    #comb_matrix = np.loadtxt("topic_similarity_pearson_matrix.csv")
+    #display_matrix(comb_matrix, "Topic similarity pearson matrix")
 
     #Task 8 
     three_terms, word_counts = three_most_frequent_terms(chapterdata)
