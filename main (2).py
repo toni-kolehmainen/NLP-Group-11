@@ -28,6 +28,7 @@ from collections import defaultdict
 import spacy
 import pandas as pd
 import matplotlib.patches as patches
+import csv
 
 nlp = spacy.load("en_core_web_sm")
 
@@ -270,138 +271,7 @@ def combine_similarity_matrices(similarity_matrix_cosine, similarity_matrix_jacc
     # Combine using a weighted average
     combined_similarity = alpha * similarity_matrix_cosine + (1 - alpha) * similarity_matrix_jaccard
     return combined_similarity
-
-# For Task 8
-def three_most_frequent_terms(chapterdata):
-    combined_text = ''.join(chapter[1] for chapter in chapterdata)
-    combined_text = re.sub(r'[^\w\s]', '', combined_text.lower())
-    words = word_tokenize(combined_text)
-    stop_words = set(stopwords.words('english'))
-    filtered_words = [word for word in words if word not in stop_words]
-    word_counts = Counter(filtered_words)
-    top_three = word_counts.most_common(3)
-    return top_three, word_counts
-
-def get_context_tokens(chapterdata):
-    # Define target words
-    target_words = {"thou", "thy", "one"}
-
-    # Initialize list to store token context information
-    context_data = []
-
-    # Process each chapter in chapterdata
-    for i, chapter in enumerate(chapterdata):
-        chapter_name = i  # Assuming chapter[0] is the chapter name
-        chapter_text = chapter[1]
-        
-        # Parse text with spaCy
-        doc = nlp(chapter_text)
-
-        # Initialize a dictionary to track POS counts for each target word
-        pos_count = {word: {'NOUN': 0, 'VERB': 0, 'ADJ': 0, 'ADV': 0, 'PRON': 0, 'PROPN': 0} for word in target_words}
-
-        # Loop through tokens and check for target words
-        for token in doc:
-            if token.text.lower() in target_words:
-                # Extract tokens within a 2-token window
-                context_tokens = doc[max(token.i - 2, 0): token.i + 3]
-                
-                # Count POS tags for the target word
-                for t in context_tokens:
-                    if t != token and t.pos_ in pos_count[token.text.lower()]:
-                        pos_count[token.text.lower()][t.pos_] += 1
-        
-        # Store the counts as percentage
-        for word in target_words:
-            total_count = sum(pos_count[word].values())
-            if total_count > 0:
-                # Calculate percentages
-                pos_percentage = {pos: (count / total_count) * 100 for pos, count in pos_count[word].items()}
-            else:
-                # If no counts, set all to 0%
-                pos_percentage = {pos: 0 for pos in pos_count[word]}
-            
-            context_data.append({
-                'chapter': chapter_name,
-                'target_word': word,
-                'percentages': pos_percentage
-            })
-    
-    return context_data
-
-def plot_stacked_pos_distribution(context_data):
-    # Prepare DataFrame for plotting
-    pos_data = []
-    
-    # Extract data into a DataFrame
-    for item in context_data:
-        chapter = item['chapter']
-        target_word = item['target_word']
-        percentages = item['percentages']
-        
-        pos_data.append({
-            'chapter': chapter,
-            'target_word': target_word,
-            'NOUN': percentages['NOUN'],
-            'VERB': percentages['VERB'],
-            'ADJ': percentages['ADJ'],
-            'ADV': percentages['ADV'],
-            'PRON': percentages['PRON'],
-            'PROPN': percentages['PROPN']
-        })
-    
-    pos_df = pd.DataFrame(pos_data)
-
-    # Filter to keep only the relevant POS columns
-    pos_columns = ['NOUN', 'VERB', 'ADJ', 'ADV', 'PRON', 'PROPN']
-    filtered_df = pos_df[pos_columns]
-
-    # Create a new DataFrame to plot, keeping all rows intact
-    plot_data = filtered_df.copy()
-    plot_data['Index'] = np.arange(len(plot_data))  # Create a unique index for each row
-
-    # Set up colors for the bars
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
-
-    # Create a stacked bar plot
-    fig, ax = plt.subplots(figsize=(15, 8))
-
-    # Create an array for the bottom positions of each bar
-    bottoms = np.zeros(len(plot_data))
-
-    # Create bars for each POS tag
-    for pos_tag, color in zip(pos_columns, colors):
-        ax.bar(plot_data['Index'], plot_data[pos_tag], bottom=bottoms, label=pos_tag, color=color)
-        bottoms += plot_data[pos_tag]
-
-    # Set x-axis labels to represent each chapter and word
-    chapter_labels = []
-    for chapter in range(1,101):  # Assuming 100 chapters
-        chapter_labels.extend([f"{chapter} thou", f"{chapter} thy", f"{chapter} one"])
-
-    # Assign custom x-tick labels, displaying only for the second occurrence of each group of three
-    ax.set_xticks(plot_data['Index'])
-    ax.set_xticklabels([f"{i//3}" if i % 3 == 1 else "" for i in range(len(plot_data))], rotation=90)
-
-    # Add titles and labels
-    ax.set_title('POS Value Distribution by Chapter (thou, thy, one)', fontsize=16)
-    ax.set_xlabel('Chapter, Word(thou, thy, one)', fontsize=14)
-    ax.set_ylabel('Percentage', fontsize=14)
-    ax.legend(title='POS Tags', bbox_to_anchor=(1.05, 1), loc='upper left')
-
-    # Draw rectangles around every three bars for outlining
-    for i in range(0, len(plot_data), 3):
-        rect = patches.Rectangle((i - 0.5, 0), 3, 100, linewidth=1, edgecolor='black', facecolor='none')
-        ax.add_patch(rect)
-
-    # Show grid and plot
-    plt.grid(axis='y')
-    plt.tight_layout()
-    plt.show()
-
-#For task 9
-
-
+# For Task 7
 def calculate_pearson_correlation(jaccard_matrix, cosine_matrix):
     """Calculate Pearson correlation coefficient between two similarity matrices."""
     # Generate vector pairs for both matrices
@@ -413,11 +283,170 @@ def calculate_pearson_correlation(jaccard_matrix, cosine_matrix):
     pearson_coefficient, p_value = pearsonr(jaccard_values, cosine_values)
     
     return pearson_coefficient, p_value
+# For Task 8
+def three_most_frequent_terms(chapterdata):
+    combined_text = ''.join(chapter[1] for chapter in chapterdata)
+    combined_text = re.sub(r'[^\w\s]', '', combined_text.lower())
+    words = word_tokenize(combined_text)
+    stop_words = set(stopwords.words('english'))
+    filtered_words = [word for word in words if word not in stop_words]
+    word_counts = Counter(filtered_words)
+    top_three = word_counts.most_common(3)
+    return top_three, word_counts
+
+def get_context_tokens(chapterdata,emotag1200):
+    # Define target words
+    target_words = {"thou", "thy", "one"}
+
+    # Initialize list to store token context information
+    context_data = []
+    emotion_context_data = []
+
+    overall_pos_count = {word: {'NOUN': 0, 'VERB': 0, 'ADJ': 0, 'ADV': 0, 'PRON': 0, 'PROPN': 0} for word in target_words}
+    overall_emotion_count = {word: {'anger': 0, 'anticipation': 0, 'disgust': 0, 'fear': 0, 'joy': 0, 'sadness': 0, 'surprise': 0, 'trust': 0} for word in target_words}
+    # Process each chapter in chapterdata
+    for i, chapter in enumerate(chapterdata):
+        chapter_name = i  # Assuming chapter[0] is the chapter name
+        chapter_text = chapter[1]
+        
+        # Parse text with spaCy
+        doc = nlp(chapter_text)
+
+        # Initialize a dictionary to track POS counts for each target word
+        pos_count = {word: {'NOUN': 0, 'VERB': 0, 'ADJ': 0, 'ADV': 0, 'PRON': 0, 'PROPN': 0} for word in target_words}
+        emotion_counts = {word: {'anger': 0, 'anticipation': 0, 'disgust': 0, 'fear': 0, 'joy': 0, 'sadness': 0, 'surprise': 0, 'trust': 0} for word in target_words}
+        # Loop through tokens and check for target words
+        for token in doc:
+            if token.text.lower() in target_words:
+                # Extract tokens within a 2-token window
+                context_tokens = doc[max(token.i - 2, 0): token.i + 3]
+                
+
+                context_tokens_before = [t.text.lower() for t in doc[max(token.i - 2, 0): token.i]]
+                context_tokens_after = [t.text.lower() for t in doc[token.i + 1: token.i + 3]]
+                
+                # Combine tokens only within these context ranges
+                combined_context_before = " ".join(context_tokens_before)
+                combined_context_after = " ".join(context_tokens_after)
+
+                if combined_context_before in emotag1200:
+                    for emotion, score in emotag1200[combined_context_before].items():
+                        emotion_counts[token.text.lower()][emotion] += float(score)
+
+                if combined_context_after in emotag1200:
+                    for emotion, score in emotag1200[combined_context_after].items():
+                        emotion_counts[token.text.lower()][emotion] += float(score)
+
+                # Count POS tags for the target word
+                for t in context_tokens:
+                    if t != token and t.pos_ in pos_count[token.text.lower()]:
+                        pos_count[token.text.lower()][t.pos_] += 1
+                    if t.text.lower() in emotag1200:
+                        for emotion, score in emotag1200[t.text.lower()].items():
+                            emotion_counts[token.text.lower()][emotion] += float(score)
+        
+        for word in target_words:
+            for pos, count in pos_count[word].items():
+                overall_pos_count[word][pos] += count
+            for emotion, count in emotion_counts[word].items():
+                overall_emotion_count[word][emotion] += count
+        # Store the raw counts for each chapter
+        for word in target_words:
+            context_data.append({
+                'chapter': chapter_name,
+                'target_word': word,
+                'NOUN': pos_count[word]['NOUN'],
+                'VERB': pos_count[word]['VERB'],
+                'ADJ': pos_count[word]['ADJ'],
+                'ADV': pos_count[word]['ADV'],
+                'PRON': pos_count[word]['PRON'],
+                'PROPN': pos_count[word]['PROPN']
+            })
+            emotion_context_data.append({
+                'chapter': chapter_name,
+                'target_word': word,
+                'anger': emotion_counts[word]['anger'],
+                'anticipation': emotion_counts[word]['anticipation'],
+                'disgust': emotion_counts[word]['disgust'],
+                'fear': emotion_counts[word]['fear'],
+                'joy': emotion_counts[word]['joy'],
+                'sadness': emotion_counts[word]['sadness'],
+                'surprise': emotion_counts[word]['surprise'],
+                'trust': emotion_counts[word]['trust']
+            })
+
+    print("Overall POS Counts Summary:")
+    for word, pos_counts in overall_pos_count.items():
+        print(f"Word '{word}': {pos_counts}")
+    print("\nOverall Emotion Counts Summary:")
+    for word, emotion_counts in overall_emotion_count.items():
+        formatted_counts = {emotion: round(count, 2) for emotion, count in emotion_counts.items()}
+        print(f"Word '{word}': {formatted_counts}")
+    return context_data, emotion_context_data
+
+def load_emotag_data(file_path):
+    """Load EmoTag1200 data from CSV into a dictionary with emotion scores."""
+    emotag_data = {}
+    df = pd.read_csv(file_path, header=0)
+    
+    for _, row in df.iterrows():
+        word = row[2].lower()  # The word associated with the emoji (index 2)
+        emotag_data[word] = {
+            "anger": float(row['anger']),
+            "anticipation": float(row['anticipation']),
+            "disgust": float(row['disgust']),
+            "fear": float(row['fear']),
+            "joy": float(row['joy']),
+            "sadness": float(row['sadness']),
+            "surprise": float(row['surprise']),
+            "trust": float(row['trust'])
+        }
+    
+    return emotag_data
+
+
+def plot_total_pos_tags_by_word(csv_file_path):
+    # Read the CSV into a DataFrame
+    df = pd.read_csv(csv_file_path)
+    
+    # List of POS tags in the data
+    pos_tags = ['NOUN', 'VERB', 'ADJ', 'ADV', 'PRON', 'PROPN']
+    
+    # Get unique target words
+    target_words = df['target_word'].unique()
+
+    # Calculate the total POS counts for each word
+    total_pos_counts = df.groupby('target_word')[pos_tags].sum()
+
+    # Create a bar plot for each word
+    for word in target_words:
+        # Get the total counts for the current word
+        word_totals = total_pos_counts.loc[word]
+
+        # Create a figure for the word
+        plt.figure(figsize=(8, 5))
+        
+        # Plot the total POS counts as a bar chart
+        word_totals.plot(kind='bar', color='skyblue')
+        
+        # Adding labels and title
+        plt.xlabel('POS Tags')
+        plt.ylabel('Total Count')
+        plt.title(f'Total POS Tag Counts for "{word.capitalize()}"')
+        
+        # Show the plot for each word
+        plt.tight_layout()
+        plt.show()
+
+
+#For task 9
+
+
 
 if __name__=='__main__':
     # Task 1
     contents= []
-
+    # Prints vocabulary of the whole book
     book_vocabulary()
     # creates 2d list that contains title of the chapter and text
     with open("data.txt", "r", encoding='utf-8') as data:
@@ -436,9 +465,11 @@ if __name__=='__main__':
     #np.savetxt("vocabulary_matrix.csv", matrix)
 
     #matrix = analyse_matrix_with_cosine(chapterdata)
-    n#p.savetxt("vocabulary_cosine_matrix.csv", matrix)
+    #np.savetxt("vocabulary_cosine_matrix.csv", matrix)
 
+    # Loads the data from file"
     loaded_matrix = np.loadtxt('vocabulary_matrix.csv')
+    # Calculates Book overlap
     inferno_overlap = analyze_within_book_overlap(loaded_matrix,0,33)
     purgatory_overlap = analyze_within_book_overlap(loaded_matrix,34,67)
     paradise_overlap = analyze_within_book_overlap(loaded_matrix,67,100)
@@ -447,18 +478,19 @@ if __name__=='__main__':
           "Paradise book average vocabulary overlap : {}\n".format(paradise_overlap)
         )
     display_matrix(loaded_matrix, "Vocabulary overlap matrix")
-
+    # Vocabulary overlap using cosine
     voc_cosine_matrix = np.loadtxt("vocabulary_cosine_matrix.csv")
     display_matrix(voc_cosine_matrix, "Cosine Vocabulary overlap matrix")
-
+    # Calculates Pearson corr and p-value of the two vocabulary overlap matrixes
     pearson_coeff, p_value = calculate_pearson_correlation(loaded_matrix,voc_cosine_matrix)
     print(f"Pearson correlation between Vocabulary overlap measures {pearson_coeff} with p-value of {p_value}")
+
 
     # Task 3
     # Run these for topic similarity matrix (takes about 5 seconds)
     #topics, vocab = apply_lda_to_chapters(chapterdata)
     
-    # Calculate cosine similarity
+    # Calculate cosine and jaccard topic similarity
     #topic_vectors = create_topic_vectors(topics, vocab)
     #similarity_matrix = cosine_similarity(topic_vectors)
     #np.savetxt("topic_cosine_similarity_matrix.csv", similarity_matrix)
@@ -466,12 +498,12 @@ if __name__=='__main__':
     #matrix = calculate_jaccard_topic_similarity(topics)
     #np.savetxt("topic_jaccard_similarity_matrix.csv", matrix)
 
-    topic_j_matrix = np.loadtxt("topic_cosine_similarity_matrix.csv")
-    display_matrix(topic_j_matrix, "Topic Cosine similarity matrix")
+    topic_c_matrix = np.loadtxt("topic_cosine_similarity_matrix.csv")
+    display_matrix(topic_c_matrix, "Topic Cosine similarity matrix")
     
     
-    topic_c_matrix = np.loadtxt('topic_jaccard_similarity_matrix.csv')
-    display_matrix(topic_c_matrix, "Topic Jaccard similarity matrix")
+    topic_j_matrix = np.loadtxt('topic_jaccard_similarity_matrix.csv')
+    display_matrix(topic_j_matrix, "Topic Jaccard similarity matrix")
 
     # Combination matrix
     #combination_matrix = combine_similarity_matrices(topic_c_matrix, topic_j_matrix, 0.5)
@@ -481,6 +513,7 @@ if __name__=='__main__':
     display_matrix(comb_matrix, "Topic similarity Combination matrix")
 
     pearson_coeff, p_value = calculate_pearson_correlation(topic_j_matrix,topic_c_matrix)
+
     print(f"Pearson correlation between Jaccard and Cosine topic similarity {pearson_coeff} with p-value of {p_value}")
     #np.savetxt("topic_similarity_pearson_matrix.csv", pearson_matrix)
 
@@ -488,10 +521,37 @@ if __name__=='__main__':
     #display_matrix(comb_matrix, "Topic similarity pearson matrix")
 
     #Task 8 
+
     three_terms, word_counts = three_most_frequent_terms(chapterdata)
+    # prints the three terms and the times they appear
     print(three_terms)
-    context_data = get_context_tokens(chapterdata)
-    #plot_pos_distribution(context_data,"thou")
-    #plot_pos_distribution(context_data,"thy")
-    #plot_pos_distribution(context_data,"one")
-    plot_stacked_pos_distribution(context_data)
+    data = load_emotag_data("EmoTag1200-scores.csv")
+    # gives context_data for POS tags and emotion_context_data for EmoTag 
+    #context_data, emotion_context_data = get_context_tokens(chapterdata, data)
+    # Saves the data into files
+    '''
+    with open("term_pos_tag_data.csv", mode="w", newline='', encoding='utf-8') as csv_file:
+        pos_fieldnames = ['chapter', 'target_word', 'NOUN', 'VERB', 'ADJ', 'ADV', 'PRON', 'PROPN']
+        writer = csv.DictWriter(csv_file, fieldnames=pos_fieldnames)
+        
+        # Write header
+        writer.writeheader()
+        
+        # Write rows
+        for data in context_data:
+            writer.writerow(data)
+
+    with open("term_emotag_data.csv", mode="w", newline='', encoding='utf-8') as csv_file:
+        emotion_fieldnames = ['chapter', 'target_word', 'anger', 'anticipation', 'disgust', 'fear', 'joy', 'sadness', 'surprise', 'trust']
+        writer = csv.DictWriter(csv_file, fieldnames=emotion_fieldnames)
+        
+        # Write header
+        writer.writeheader()
+        
+        # Write rows
+        for data in emotion_context_data:
+            writer.writerow(data)
+    '''
+    plot_total_pos_tags_by_word("term_pos_tag_data.csv")
+    
+    
