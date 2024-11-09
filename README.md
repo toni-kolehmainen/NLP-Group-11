@@ -15,3 +15,5 @@ ps. the table created is based on the file that contains the task related to tab
 Task 9 is remaint to be not done, because of the library used in this task didn't work as expected.
 First problem was with is depencies which were solved after some problem solving. 
 However when starting to use this library with the data the result was error.
+
+For task 9 the prosodic should be uninstalled and the prosodic with version 1.3.12
